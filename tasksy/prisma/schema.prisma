@@ -1,0 +1,327 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// User Models
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  emailVerified      DateTime?
+  phone              String?   @unique
+  phoneVerified      Boolean   @default(false)
+  name               String
+  image              String?
+  bio                String?
+  city               String?
+  region             String?
+  latitude           Float?
+  longitude          Float?
+  isVerified         Boolean   @default(false)
+  verificationDocUrl String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  isActive           Boolean   @default(true)
+  isBanned           Boolean   @default(false)
+  stripeAccountId    String?
+  stripeCustomerId   String?
+  
+  // Relationships
+  accounts           Account[]
+  sessions           Session[]
+  tasksCreated       Task[]    @relation("TaskCreator")
+  taskApplications   TaskApplication[]
+  tasksAssigned      Task[]    @relation("TaskAssignee")
+  reviewsGiven       Review[]  @relation("ReviewGiver")
+  reviewsReceived    Review[]  @relation("ReviewReceiver")
+  messagesSent       Message[] @relation("MessageSender")
+  messagesReceived   Message[] @relation("MessageReceiver")
+  conversations      ConversationParticipant[]
+  payments           Payment[]
+  reports            Report[]  @relation("ReportedBy")
+  reportsReceived    Report[]  @relation("ReportedUser")
+  skills             UserSkill[]
+  
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verificationtokens")
+}
+
+// Task Models
+model Category {
+  id          String @id @default(cuid())
+  name        String @unique
+  nameNl      String @unique // Dutch translation
+  description String?
+  descriptionNl String?
+  icon        String?
+  color       String?
+  isActive    Boolean @default(true)
+  
+  tasks Task[]
+  skills UserSkill[]
+  
+  @@map("categories")
+}
+
+model Task {
+  id               String      @id @default(cuid())
+  title            String
+  description      String
+  categoryId       String
+  creatorId        String
+  assigneeId       String?
+  status           TaskStatus  @default(OPEN)
+  price            Float
+  currency         String      @default("EUR")
+  isFixedPrice     Boolean     @default(true)
+  estimatedHours   Float?
+  location         String
+  latitude         Float?
+  longitude        Float?
+  isRemote         Boolean     @default(false)
+  deadline         DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  isUrgent         Boolean     @default(false)
+  images           String? // JSON string of image URLs
+  requirements     String?
+  
+  // Relationships
+  category         Category           @relation(fields: [categoryId], references: [id])
+  creator          User               @relation("TaskCreator", fields: [creatorId], references: [id])
+  assignee         User?              @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  applications     TaskApplication[]
+  reviews          Review[]
+  payments         Payment[]
+  reports          Report[]           @relation("ReportedTask")
+  
+  @@map("tasks")
+}
+
+model TaskApplication {
+  id          String              @id @default(cuid())
+  taskId      String
+  applicantId String
+  message     String?
+  proposedPrice Float?
+  status      ApplicationStatus   @default(PENDING)
+  appliedAt   DateTime            @default(now())
+  
+  // Relationships
+  task        Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  applicant   User                @relation(fields: [applicantId], references: [id])
+  
+  @@unique([taskId, applicantId])
+  @@map("task_applications")
+}
+
+model UserSkill {
+  id          String   @id @default(cuid())
+  userId      String
+  categoryId  String
+  skillName   String
+  experience  String? // BEGINNER, INTERMEDIATE, EXPERT
+  hourlyRate  Float?
+  isOffering  Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  
+  // Relationships
+  user        User     @relation(fields: [userId], references: [id])
+  category    Category @relation(fields: [categoryId], references: [id])
+  
+  @@unique([userId, categoryId, skillName])
+  @@map("user_skills")
+}
+
+// Communication Models
+model Conversation {
+  id          String                    @id @default(cuid())
+  taskId      String?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  lastMessage String?
+  
+  // Relationships
+  participants ConversationParticipant[]
+  messages     Message[]
+  
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             String   @id @default(cuid())
+  conversationId String
+  userId         String
+  joinedAt       DateTime @default(now())
+  lastSeenAt     DateTime?
+  
+  // Relationships
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id])
+  
+  @@unique([conversationId, userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String
+  receiverId     String
+  content        String
+  messageType    String   @default("TEXT") // TEXT, IMAGE, FILE
+  attachmentUrl  String?
+  isRead         Boolean  @default(false)
+  sentAt         DateTime @default(now())
+  
+  // Relationships
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id])
+  receiver       User         @relation("MessageReceiver", fields: [receiverId], references: [id])
+  
+  @@map("messages")
+}
+
+// Review and Rating Models
+model Review {
+  id          String   @id @default(cuid())
+  taskId      String
+  giverId     String
+  receiverId  String
+  rating      Int      // 1-5 stars
+  comment     String?
+  isPublic    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  
+  // Relationships
+  task        Task     @relation(fields: [taskId], references: [id])
+  giver       User     @relation("ReviewGiver", fields: [giverId], references: [id])
+  receiver    User     @relation("ReviewReceiver", fields: [receiverId], references: [id])
+  
+  @@unique([taskId, giverId])
+  @@map("reviews")
+}
+
+// Payment Models
+model Payment {
+  id                String        @id @default(cuid())
+  taskId            String
+  payerId           String
+  receiverId        String?
+  amount            Float
+  currency          String        @default("EUR")
+  platformFee       Float
+  netAmount         Float
+  status            PaymentStatus @default(PENDING)
+  stripePaymentId   String?
+  stripeTransferId  String?
+  paidAt            DateTime?
+  transferredAt     DateTime?
+  createdAt         DateTime      @default(now())
+  
+  // Relationships
+  task              Task          @relation(fields: [taskId], references: [id])
+  payer             User          @relation(fields: [payerId], references: [id])
+  
+  @@map("payments")
+}
+
+// Moderation Models
+model Report {
+  id          String     @id @default(cuid())
+  reportedBy  String
+  reportedUserId String?
+  reportedTaskId String?
+  reason      String
+  description String?
+  status      ReportStatus @default(PENDING)
+  createdAt   DateTime   @default(now())
+  resolvedAt  DateTime?
+  
+  // Relationships
+  reporter    User       @relation("ReportedBy", fields: [reportedBy], references: [id])
+  reportedUser User?     @relation("ReportedUser", fields: [reportedUserId], references: [id])
+  reportedTask Task?     @relation("ReportedTask", fields: [reportedTaskId], references: [id])
+  
+  @@map("reports")
+}
+
+// Enums
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum ApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
